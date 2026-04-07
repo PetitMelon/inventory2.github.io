@@ -28,9 +28,19 @@ import {
   update
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-/* =====================
+
    ★ ここにFirebaseの設定を貼り付けてください ★
-   ===================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyDZ-SHcvAXcaBybYf6qZfduoDPPw6ljL1g",
+  authDomain: "stocke-23237.firebaseapp.com",
+  databaseURL: "https://stocke-23237-default-rtdb.firebaseio.com",
+  projectId: "stocke-23237",
+  storageBucket: "stocke-23237.firebasestorage.app",
+  messagingSenderId: "1071402774871",
+  appId: "1:1071402774871:web:3defc3bae3f4fcae8c8e12",
+  measurementId: "G-18FNSNDLJX"
+};
+
 const firebaseConfig = {
   apiKey:            "YOUR_API_KEY",
   authDomain:        "YOUR_PROJECT_ID.firebaseapp.com",
