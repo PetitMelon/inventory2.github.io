@@ -29,9 +29,9 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 
-   ★ ここにFirebaseの設定を貼り付けてください ★
+   //★ ここにFirebaseの設定を貼り付けてください ★//
 const firebaseConfig = {
-  apiKey: "AIzaSyDZ-SHcvAXcaBybYf6qZfduoDPPw6ljL1g",
+  apiKey: "",
   authDomain: "stocke-23237.firebaseapp.com",
   databaseURL: "https://stocke-23237-default-rtdb.firebaseio.com",
   projectId: "stocke-23237",
