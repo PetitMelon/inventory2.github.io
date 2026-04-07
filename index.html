@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>家族の在庫管理</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ログイン画面 -->
+  <div id="auth-screen" class="auth-screen">
+    <div class="auth-box">
+      <div class="auth-logo">🏠</div>
+      <div class="auth-title">家族の在庫管理</div>
+      <div class="auth-sub">ログインしてください</div>
+
+      <div id="auth-error" class="auth-error" style="display:none"></div>
+
+      <div class="field">
+        <label>メールアドレス</label>
+        <input type="email" id="auth-email" placeholder="例：family@example.com" autocomplete="email">
+      </div>
+      <div class="field">
+        <label>パスワード</label>
+        <input type="password" id="auth-password" placeholder="6文字以上" autocomplete="current-password">
+      </div>
+
+      <button class="auth-btn" id="btn-login">ログイン</button>
+      <button class="auth-btn auth-btn-sub" id="btn-register">新規登録</button>
+
+      <div class="auth-note">※ ご家族のみ登録してください</div>
+    </div>
+  </div>
+
+  <!-- メインアプリ（ログイン後に表示） -->
+  <div id="app-screen" class="app" style="display:none">
+    <div class="header">
+      <div>
+        <div class="header-title">家族の在庫管理</div>
+        <div class="header-sub">みんなで管理・いつでも確認</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="add-btn" id="btn-add">＋ 追加</button>
+        <button class="logout-btn" id="btn-logout">ログアウト</button>
+      </div>
+    </div>
+
+    <div class="sync-bar">
+      <span class="sync-dot" id="sync-dot"></span>
+      <span id="sync-label">接続中...</span>
+      <span id="user-label" style="margin-left:auto;font-size:12px;color:var(--color-text-secondary,#666)"></span>
+    </div>
+
+    <div id="alert-area"></div>
+    <div class="tab-row" id="tabs"></div>
+    <div id="list-area"></div>
+  </div>
+
+  <!-- 追加・編集モーダル -->
+  <div class="overlay" id="modal-overlay">
+    <div class="modal">
+      <div class="modal-title" id="modal-title">商品を追加</div>
+      <div class="img-preview" id="img-preview"><span id="preview-emoji">🛒</span></div>
+      <label class="img-upload-label" for="img-input">写真をアップロード</label>
+      <input type="file" id="img-input" accept="image/*" style="display:none">
+      <div class="field">
+        <label>商品名</label>
+        <input type="text" id="f-name" placeholder="例：トイレットペーパー">
+      </div>
+      <div class="field">
+        <label>カテゴリ</label>
+        <select id="f-cat">
+          <option>日用品</option>
+          <option>ペット用品</option>
+          <option>食品・飲料</option>
+          <option>洗剤・清掃</option>
+          <option>薬・衛生</option>
+          <option>その他</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>現在の在庫数</label>
+        <input type="number" id="f-stock" min="0" value="1">
+      </div>
+      <div class="field">
+        <label>アラートの基準（この数以下で警告）</label>
+        <input type="number" id="f-threshold" min="0" value="2">
+      </div>
+      <div class="field">
+        <label>単位（個・本・袋など）</label>
+        <input type="text" id="f-unit" placeholder="個" maxlength="4">
+      </div>
+      <div class="field">
+        <label>アイコン</label>
+        <div class="emoji-grid" id="emoji-grid"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" id="btn-cancel">キャンセル</button>
+        <button class="btn-delete" id="btn-delete" style="display:none">削除</button>
+        <button class="btn-save" id="btn-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 削除確認ダイアログ -->
+  <div class="confirm-overlay" id="confirm-overlay">
+    <div class="confirm-box">
+      <p id="confirm-msg">この商品を削除しますか？</p>
+      <div class="confirm-actions">
+        <button class="confirm-no" id="confirm-no">キャンセル</button>
+        <button class="confirm-yes" id="confirm-yes">削除する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- トースト通知 -->
+  <div class="toast" id="toast"></div>
+
+  <!-- Firebase SDK（モジュール形式） -->
+  <script type="module" src="app.js"></script>
+
+</body>
+</html>
