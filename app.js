@@ -1,30 +1,29 @@
 /* =====================================================
-   家族の在庫管理アプリ — app.js
+   stocké — app.js
    Firebase Authentication + Realtime Database 対応版
-   ※ APIキーはGitHub Secretsから自動注入されます
-      直接このファイルに貼り付けないでください
+   カテゴリ別横スクロールカルーセル
+
+   【セットアップ手順】
+   1. https://console.firebase.google.com でプロジェクト作成
+   2. Authentication → メール/パスワードを有効化
+   3. Realtime Database を作成（テストモードで開始）
+   4. ウェブアプリを追加して firebaseConfig を取得
+   5. GitHub Secrets に各値を登録（deploy.yml が自動注入）
    ===================================================== */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import {
-  getAuth,
-  onAuthStateChanged,
+  getAuth, onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import {
-  getDatabase,
-  ref,
-  onValue,
-  push,
-  remove,
-  update
+  getDatabase, ref, onValue, push, remove, update
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 /* =====================
-   Firebase設定
-   （GitHub Actionsが自動的にSecretsの値に置き換えます）
+   ★ Firebase設定（GitHub Actionsが自動注入）
    ===================== */
 const firebaseConfig = {
   apiKey:            "AIzaSyDZ-SHcvAXcaBybYf6qZfduoDPPw6ljL1g",
@@ -36,9 +35,6 @@ const firebaseConfig = {
   appId:             "1:1071402774871:web:4d4e2034b1b88d218c8e12"
 };
 
-/* =====================
-   Firebase 初期化
-   ===================== */
 const firebaseApp = initializeApp(firebaseConfig);
 const auth        = getAuth(firebaseApp);
 const db          = getDatabase(firebaseApp);
@@ -128,29 +124,21 @@ function authErrorMessage(code) {
 }
 
 /* =====================
-   ログイン
+   ログイン・登録・ログアウト
    ===================== */
 document.getElementById('btn-login').addEventListener('click', async () => {
-  const errEl    = document.getElementById('auth-error');
+  const errEl = document.getElementById('auth-error');
   errEl.style.display = 'none';
   const email    = document.getElementById('auth-email').value.trim();
   const password = document.getElementById('auth-password').value;
-  if (!email || !password) {
-    errEl.textContent = 'メールアドレスとパスワードを入力してください';
-    errEl.style.display = 'block';
-    return;
-  }
+  if (!email || !password) { errEl.textContent = 'メールアドレスとパスワードを入力してください'; errEl.style.display = 'block'; return; }
   try {
     await signInWithEmailAndPassword(auth, email, password);
   } catch (e) {
-    errEl.textContent = authErrorMessage(e.code);
-    errEl.style.display = 'block';
+    errEl.textContent = authErrorMessage(e.code); errEl.style.display = 'block';
   }
 });
 
-/* =====================
-   新規登録
-   ===================== */
 document.getElementById('btn-go-register').addEventListener('click', () => showScreen('register'));
 document.getElementById('btn-go-login').addEventListener('click',     () => showScreen('login'));
 
@@ -160,31 +148,17 @@ document.getElementById('btn-register').addEventListener('click', async () => {
   const email    = document.getElementById('reg-email').value.trim();
   const password = document.getElementById('reg-password').value;
   const password2= document.getElementById('reg-password2').value;
-
-  if (!email || !password) {
-    errEl.textContent = 'メールアドレスとパスワードを入力してください';
-    errEl.style.display = 'block'; return;
-  }
-  if (password.length < 6) {
-    errEl.textContent = 'パスワードは6文字以上にしてください';
-    errEl.style.display = 'block'; return;
-  }
-  if (password !== password2) {
-    errEl.textContent = 'パスワードが一致しません';
-    errEl.style.display = 'block'; return;
-  }
+  if (!email || !password) { errEl.textContent = 'メールアドレスとパスワードを入力してください'; errEl.style.display = 'block'; return; }
+  if (password.length < 6) { errEl.textContent = 'パスワードは6文字以上にしてください'; errEl.style.display = 'block'; return; }
+  if (password !== password2) { errEl.textContent = 'パスワードが一致しません'; errEl.style.display = 'block'; return; }
   try {
     await createUserWithEmailAndPassword(auth, email, password);
     showToast('登録しました。ようこそ！');
   } catch (e) {
-    errEl.textContent = authErrorMessage(e.code);
-    errEl.style.display = 'block';
+    errEl.textContent = authErrorMessage(e.code); errEl.style.display = 'block';
   }
 });
 
-/* =====================
-   ログアウト
-   ===================== */
 document.getElementById('btn-logout').addEventListener('click', async () => {
   if (dbUnsubscribe) { dbUnsubscribe(); dbUnsubscribe = null; }
   await signOut(auth);
@@ -207,7 +181,7 @@ onAuthStateChanged(auth, (user) => {
 });
 
 /* =====================
-   Realtime Database リアルタイム同期
+   Realtime Database 同期
    ===================== */
 function startRealtimeSync() {
   setSyncStatus('loading', '接続中...');
@@ -237,9 +211,7 @@ async function initDefaultItems() {
     { name:'食器用洗剤',         cat:'洗剤・清掃', stock:1, threshold:2, unit:'本', emoji:'🧹', img:null },
     { name:'お米',               cat:'食品・飲料', stock:3, threshold:1, unit:'袋', emoji:'🍚', img:null },
   ];
-  for (const item of defaults) {
-    await push(ref(db, 'inventory/items'), item);
-  }
+  for (const item of defaults) await push(ref(db, 'inventory/items'), item);
 }
 
 /* =====================
@@ -277,17 +249,39 @@ function cardHTML(item) {
   return `
     <div class="card ${st === 'ok' ? '' : st}" data-key="${item._key}">
       ${imgEl}
-      <div class="card-name">${item.name}</div>
+      <div class="card-name" title="${item.name}">${item.name}</div>
       <div class="card-cat">${item.cat}</div>
       <div class="stock-row">
-        <span style="font-size:13px;color:#666">在庫</span>
+        <span style="font-size:12px;color:var(--brown-mid)">在庫</span>
         ${badges[st]}
       </div>
       <div class="stepper">
         <button class="step-btn" data-step="${item._key}" data-delta="-1">−</button>
         <span class="step-val num-${st}">${item.stock}</span>
-        <span style="font-size:12px;color:#666">${item.unit || '個'}</span>
+        <span style="font-size:11px;color:var(--brown-mid)">${item.unit || '個'}</span>
         <button class="step-btn" data-step="${item._key}" data-delta="1">＋</button>
+      </div>
+    </div>`;
+}
+
+/* カテゴリごとにカルーセルセクションを生成 */
+function carouselSectionHTML(cat, catItems, index) {
+  const id = `carousel-${index}`;
+  return `
+    <div class="carousel-section">
+      <div class="carousel-header">
+        <div class="section-title">${CAT_EMOJI[cat] || '📦'} ${cat}</div>
+        <span class="carousel-count">${catItems.length}件</span>
+      </div>
+      <div class="carousel-track-wrap">
+        <button class="carousel-arrow prev" data-target="${id}">‹</button>
+        <div class="carousel-track" id="${id}">
+          ${catItems.map(cardHTML).join('')}
+        </div>
+        <button class="carousel-arrow next" data-target="${id}">›</button>
+      </div>
+      <div class="carousel-dots" id="${id}-dots">
+        ${catItems.map((_, i) => `<div class="carousel-dot${i === 0 ? ' active' : ''}" data-target="${id}" data-index="${i}"></div>`).join('')}
       </div>
     </div>`;
 }
@@ -295,21 +289,77 @@ function cardHTML(item) {
 function renderList() {
   const filtered = activeTab === '全て' ? items : items.filter(i => i.cat === activeTab);
   const el = document.getElementById('list-area');
+
   if (!filtered.length) {
     el.innerHTML = '<div class="empty">商品がありません。「＋ 追加」から登録してください。</div>';
     return;
   }
-  if (activeTab === '全て') {
-    const cats = [...new Set(filtered.map(i => i.cat))];
-    el.innerHTML = cats.map(cat => {
-      const ci = filtered.filter(i => i.cat === cat);
-      return `<div class="section-title">${CAT_EMOJI[cat] || '📦'} ${cat}</div>
-              <div class="grid">${ci.map(cardHTML).join('')}</div>`;
-    }).join('');
-  } else {
-    el.innerHTML = `<div class="grid">${filtered.map(cardHTML).join('')}</div>`;
-  }
+
+  const cats = [...new Set(filtered.map(i => i.cat))];
+  el.innerHTML = cats.map((cat, idx) => {
+    const catItems = filtered.filter(i => i.cat === cat);
+    return carouselSectionHTML(cat, catItems, idx);
+  }).join('');
+
+  // 各カルーセルにスクロール同期を設定
+  cats.forEach((_, idx) => {
+    const trackId = `carousel-${idx}`;
+    const track = document.getElementById(trackId);
+    if (!track) return;
+    track.addEventListener('scroll', () => updateDots(trackId), { passive: true });
+  });
 }
+
+/* =====================
+   カルーセル操作
+   ===================== */
+function updateDots(trackId) {
+  const track = document.getElementById(trackId);
+  if (!track) return;
+  const cardWidth = track.querySelector('.card')?.offsetWidth + 12 || 172;
+  const idx = Math.round(track.scrollLeft / cardWidth);
+  const dots = document.querySelectorAll(`[data-target="${trackId}"].carousel-dot`);
+  dots.forEach((d, i) => d.classList.toggle('active', i === idx));
+}
+
+function scrollCarousel(trackId, direction) {
+  const track = document.getElementById(trackId);
+  if (!track) return;
+  const cardWidth = track.querySelector('.card')?.offsetWidth + 12 || 172;
+  track.scrollBy({ left: direction * cardWidth * 2, behavior: 'smooth' });
+}
+
+// 矢印・ドットのクリックは list-area に委譲
+document.getElementById('list-area').addEventListener('click', async function(e) {
+  // 矢印
+  const arrow = e.target.closest('.carousel-arrow');
+  if (arrow) {
+    const dir = arrow.classList.contains('next') ? 1 : -1;
+    scrollCarousel(arrow.dataset.target, dir);
+    return;
+  }
+  // ドット
+  const dot = e.target.closest('.carousel-dot');
+  if (dot) {
+    const track = document.getElementById(dot.dataset.target);
+    if (!track) return;
+    const cardWidth = track.querySelector('.card')?.offsetWidth + 12 || 172;
+    track.scrollTo({ left: parseInt(dot.dataset.index) * cardWidth, behavior: 'smooth' });
+    return;
+  }
+  // ステッパー
+  const stepBtn = e.target.closest('[data-step]');
+  if (stepBtn) {
+    const key   = stepBtn.dataset.step;
+    const delta = parseInt(stepBtn.dataset.delta);
+    const item  = items.find(i => i._key === key);
+    if (item) await update(ref(db, `inventory/items/${key}`), { stock: Math.max(0, item.stock + delta) });
+    return;
+  }
+  // カード編集
+  const card = e.target.closest('[data-key]');
+  if (card) openEdit(card.dataset.key);
+});
 
 /* =====================
    モーダル操作
@@ -400,7 +450,7 @@ async function doDelete() {
 }
 
 /* =====================
-   イベントリスナー
+   その他イベントリスナー
    ===================== */
 document.getElementById('btn-add').addEventListener('click', openAdd);
 document.getElementById('btn-cancel').addEventListener('click', closeModal);
@@ -418,21 +468,6 @@ document.getElementById('modal-overlay').addEventListener('click', function(e) {
 document.getElementById('tabs').addEventListener('click', function(e) {
   const t = e.target.closest('[data-tab]');
   if (t) { activeTab = t.dataset.tab; render(); }
-});
-
-document.getElementById('list-area').addEventListener('click', async function(e) {
-  const stepBtn = e.target.closest('[data-step]');
-  if (stepBtn) {
-    const key   = stepBtn.dataset.step;
-    const delta = parseInt(stepBtn.dataset.delta);
-    const item  = items.find(i => i._key === key);
-    if (item) {
-      await update(ref(db, `inventory/items/${key}`), { stock: Math.max(0, item.stock + delta) });
-    }
-    return;
-  }
-  const card = e.target.closest('[data-key]');
-  if (card) openEdit(card.dataset.key);
 });
 
 document.getElementById('emoji-grid').addEventListener('click', function(e) {
