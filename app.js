@@ -1,14 +1,8 @@
 /* =====================================================
    stocké — app.js
-   Firebase Authentication + Realtime Database 対応版
-   カテゴリ別横スクロールカルーセル
-
-   【セットアップ手順】
-   1. https://console.firebase.google.com でプロジェクト作成
-   2. Authentication → メール/パスワードを有効化
-   3. Realtime Database を作成（テストモードで開始）
-   4. ウェブアプリを追加して firebaseConfig を取得
-   5. GitHub Secrets に各値を登録（deploy.yml が自動注入）
+   Firebase Authentication + Realtime Database
+   ・個数管理 / 残量管理（パーセント）
+   ・自動消費：手動ペース設定 + 消費履歴自動学習
    ===================================================== */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -19,11 +13,11 @@ import {
   signOut
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import {
-  getDatabase, ref, onValue, push, remove, update
+  getDatabase, ref, onValue, push, remove, update, get
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 /* =====================
-   ★ Firebase設定（GitHub Actionsが自動注入）
+   Firebase設定（GitHub Actionsが自動注入）
    ===================== */
 const firebaseConfig = {
   apiKey:            "AIzaSyDZ-SHcvAXcaBybYf6qZfduoDPPw6ljL1g",
@@ -43,20 +37,14 @@ const db          = getDatabase(firebaseApp);
    定数
    ===================== */
 const EMOJIS = [
-  '🧻','🧴','🧹','🪣','🧺','🐾',
-  '🐶','🐱','🐟','🥫','🍚','🥤',
-  '💊','🩺','🪥','🧼','🛁','🍶',
-  '🧃','🫙','🍞','🥛','☕','🫧',
-  '🧽','🗑'
+  '🧻','🧴','🧹','🪣','🧺','🐾','🐶','🐱','🐟','🥫','🍚','🥤',
+  '💊','🩺','🪥','🧼','🛁','🍶','🧃','🫙','🍞','🥛','☕','🫧','🧽','🗑'
 ];
 const CAT_EMOJI = {
-  '日用品':    '🏠',
-  'ペット用品': '🐾',
-  '食品・飲料': '🥦',
-  '洗剤・清掃': '🧴',
-  '薬・衛生':   '💊',
-  'その他':     '📦'
+  '日用品':'🏠','ペット用品':'🐾','食品・飲料':'🥦',
+  '洗剤・清掃':'🧴','薬・衛生':'💊','その他':'📦'
 };
+const PCT_LABELS = { 100:'満タン', 75:'75%', 50:'半分', 25:'残り少し', 0:'空' };
 
 /* =====================
    状態
@@ -67,27 +55,32 @@ let editFirebaseKey = null;
 let selectedEmoji   = '🛒';
 let uploadedImg     = null;
 let dbUnsubscribe   = null;
+let currentMode     = 'count';   // 'count' | 'percent'
+let currentAutoMode = 'manual';  // 'manual' | 'learn'
+let selectedPct     = 100;
 
 /* =====================
    ユーティリティ
    ===================== */
 function showToast(msg) {
   const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
+  t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2500);
 }
 
 function setSyncStatus(status, label) {
   const dot = document.getElementById('sync-dot');
-  dot.className = 'sync-dot' + (
-    status === 'ok'      ? '' :
-    status === 'loading' ? ' loading' : ' error'
-  );
+  dot.className = 'sync-dot' + (status === 'ok' ? '' : status === 'loading' ? ' loading' : ' error');
   document.getElementById('sync-label').textContent = label;
 }
 
 function getStatus(item) {
+  if (item.mode === 'percent') {
+    const p = item.percent ?? 100;
+    if (p <= 0)  return 'low';
+    if (p <= 25) return 'warn';
+    return 'ok';
+  }
   if (item.stock === 0) return 'low';
   if (item.stock <= Math.floor(item.threshold / 2)) return 'low';
   if (item.stock <= item.threshold) return 'warn';
@@ -96,6 +89,70 @@ function getStatus(item) {
 
 function getAllCats() {
   return ['全て', ...new Set(items.map(i => i.cat))];
+}
+
+/* =====================
+   自動消費ロジック
+   ===================== */
+
+// 消費履歴から1日あたりの平均消費量を計算
+function calcLearnedPace(history) {
+  if (!history || history.length < 2) return null;
+  const sorted = [...history].sort((a, b) => a.ts - b.ts);
+  let totalDelta = 0, totalDays = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    const delta = sorted[i-1].val - sorted[i].val;
+    const days  = (sorted[i].ts - sorted[i-1].ts) / 86400000;
+    if (delta > 0 && days > 0) { totalDelta += delta; totalDays += days; }
+  }
+  return totalDays > 0 ? totalDelta / totalDays : null;
+}
+
+// 自動消費を実行（1日1回、最終実行日が今日でなければ）
+async function runAutoConsumption() {
+  const today = new Date().toDateString();
+  for (const item of items) {
+    if (!item.autoEnabled) continue;
+    if (item.lastAutoDate === today) continue;
+
+    let pace = null;
+    if (item.autoMode === 'learn') {
+      const snap = await get(ref(db, `inventory/history/${item._key}`));
+      const hist = snap.val() ? Object.values(snap.val()) : [];
+      pace = calcLearnedPace(hist) ?? item.manualPace ?? 1;
+    } else {
+      pace = item.manualPace ?? 1;
+    }
+
+    if (item.mode === 'percent') {
+      const newPct = Math.max(0, (item.percent ?? 100) - pace);
+      await update(ref(db, `inventory/items/${item._key}`), {
+        percent: Math.round(newPct), lastAutoDate: today
+      });
+    } else {
+      const newStock = Math.max(0, (item.stock ?? 0) - pace);
+      await update(ref(db, `inventory/items/${item._key}`), {
+        stock: Math.round(newStock * 10) / 10, lastAutoDate: today
+      });
+    }
+  }
+}
+
+// 手動で在庫を変更したとき履歴を記録
+async function recordHistory(key, newVal) {
+  await push(ref(db, `inventory/history/${key}`), {
+    ts: Date.now(), val: newVal
+  });
+  // 履歴は最大30件に制限
+  const snap = await get(ref(db, `inventory/history/${key}`));
+  if (snap.val()) {
+    const entries = Object.entries(snap.val()).sort((a,b) => a[1].ts - b[1].ts);
+    if (entries.length > 30) {
+      for (let i = 0; i < entries.length - 30; i++) {
+        await remove(ref(db, `inventory/history/${key}/${entries[i][0]}`));
+      }
+    }
+  }
 }
 
 /* =====================
@@ -108,7 +165,7 @@ function showScreen(name) {
 }
 
 /* =====================
-   認証エラーメッセージ
+   認証
    ===================== */
 function authErrorMessage(code) {
   switch (code) {
@@ -123,51 +180,37 @@ function authErrorMessage(code) {
   }
 }
 
-/* =====================
-   ログイン・登録・ログアウト
-   ===================== */
 document.getElementById('btn-login').addEventListener('click', async () => {
   const errEl = document.getElementById('auth-error');
   errEl.style.display = 'none';
-  const email    = document.getElementById('auth-email').value.trim();
-  const password = document.getElementById('auth-password').value;
-  if (!email || !password) { errEl.textContent = 'メールアドレスとパスワードを入力してください'; errEl.style.display = 'block'; return; }
-  try {
-    await signInWithEmailAndPassword(auth, email, password);
-  } catch (e) {
-    errEl.textContent = authErrorMessage(e.code); errEl.style.display = 'block';
-  }
+  const email = document.getElementById('auth-email').value.trim();
+  const pass  = document.getElementById('auth-password').value;
+  if (!email || !pass) { errEl.textContent = 'メールアドレスとパスワードを入力してください'; errEl.style.display = 'block'; return; }
+  try { await signInWithEmailAndPassword(auth, email, pass); }
+  catch (e) { errEl.textContent = authErrorMessage(e.code); errEl.style.display = 'block'; }
 });
 
 document.getElementById('btn-go-register').addEventListener('click', () => showScreen('register'));
 document.getElementById('btn-go-login').addEventListener('click',     () => showScreen('login'));
 
 document.getElementById('btn-register').addEventListener('click', async () => {
-  const errEl    = document.getElementById('reg-error');
+  const errEl = document.getElementById('reg-error');
   errEl.style.display = 'none';
-  const email    = document.getElementById('reg-email').value.trim();
-  const password = document.getElementById('reg-password').value;
-  const password2= document.getElementById('reg-password2').value;
-  if (!email || !password) { errEl.textContent = 'メールアドレスとパスワードを入力してください'; errEl.style.display = 'block'; return; }
-  if (password.length < 6) { errEl.textContent = 'パスワードは6文字以上にしてください'; errEl.style.display = 'block'; return; }
-  if (password !== password2) { errEl.textContent = 'パスワードが一致しません'; errEl.style.display = 'block'; return; }
-  try {
-    await createUserWithEmailAndPassword(auth, email, password);
-    showToast('登録しました。ようこそ！');
-  } catch (e) {
-    errEl.textContent = authErrorMessage(e.code); errEl.style.display = 'block';
-  }
+  const email  = document.getElementById('reg-email').value.trim();
+  const pass   = document.getElementById('reg-password').value;
+  const pass2  = document.getElementById('reg-password2').value;
+  if (!email || !pass) { errEl.textContent = 'メールアドレスとパスワードを入力してください'; errEl.style.display = 'block'; return; }
+  if (pass.length < 6) { errEl.textContent = 'パスワードは6文字以上にしてください'; errEl.style.display = 'block'; return; }
+  if (pass !== pass2)  { errEl.textContent = 'パスワードが一致しません'; errEl.style.display = 'block'; return; }
+  try { await createUserWithEmailAndPassword(auth, email, pass); showToast('登録しました。ようこそ！'); }
+  catch (e) { errEl.textContent = authErrorMessage(e.code); errEl.style.display = 'block'; }
 });
 
 document.getElementById('btn-logout').addEventListener('click', async () => {
   if (dbUnsubscribe) { dbUnsubscribe(); dbUnsubscribe = null; }
-  await signOut(auth);
-  showScreen('login');
+  await signOut(auth); showScreen('login');
 });
 
-/* =====================
-   ログイン状態の監視
-   ===================== */
 onAuthStateChanged(auth, (user) => {
   if (user) {
     document.getElementById('user-label').textContent = user.email;
@@ -175,41 +218,38 @@ onAuthStateChanged(auth, (user) => {
     startRealtimeSync();
   } else {
     if (dbUnsubscribe) { dbUnsubscribe(); dbUnsubscribe = null; }
-    items = [];
-    showScreen('login');
+    items = []; showScreen('login');
   }
 });
 
 /* =====================
-   Realtime Database 同期
+   Realtime Database
    ===================== */
 function startRealtimeSync() {
   setSyncStatus('loading', '接続中...');
   const itemsRef = ref(db, 'inventory/items');
-  dbUnsubscribe = onValue(itemsRef, (snapshot) => {
+  dbUnsubscribe = onValue(itemsRef, async (snapshot) => {
     const data = snapshot.val();
     if (data) {
       items = Object.entries(data).map(([key, val]) => ({ ...val, _key: key }));
+      await runAutoConsumption();
     } else {
       items = [];
-      initDefaultItems();
+      await initDefaultItems();
     }
     setSyncStatus('ok', 'リアルタイム同期中');
     render();
-  }, (error) => {
-    setSyncStatus('error', '接続エラー');
-    console.error(error);
-  });
+  }, (error) => { setSyncStatus('error', '接続エラー'); console.error(error); });
 }
 
 async function initDefaultItems() {
   const defaults = [
-    { name:'トイレットペーパー', cat:'日用品',    stock:1, threshold:3, unit:'個', emoji:'🧻', img:null },
-    { name:'シャンプー',         cat:'日用品',    stock:5, threshold:2, unit:'本', emoji:'🧴', img:null },
-    { name:'ワンちゃんのエサ',   cat:'ペット用品', stock:2, threshold:2, unit:'袋', emoji:'🐾', img:null },
-    { name:'猫砂',               cat:'ペット用品', stock:4, threshold:1, unit:'袋', emoji:'🐱', img:null },
-    { name:'食器用洗剤',         cat:'洗剤・清掃', stock:1, threshold:2, unit:'本', emoji:'🧹', img:null },
-    { name:'お米',               cat:'食品・飲料', stock:3, threshold:1, unit:'袋', emoji:'🍚', img:null },
+    { name:'トイレットペーパー', cat:'日用品',    mode:'count',   stock:1, threshold:3, unit:'個',  emoji:'🧻', img:null, autoEnabled:false },
+    { name:'シャンプー',         cat:'日用品',    mode:'count',   stock:5, threshold:2, unit:'本',  emoji:'🧴', img:null, autoEnabled:false },
+    { name:'ワンちゃんのエサ',   cat:'ペット用品', mode:'count',   stock:2, threshold:2, unit:'袋',  emoji:'🐾', img:null, autoEnabled:false },
+    { name:'猫砂',               cat:'ペット用品', mode:'percent', percent:75, emoji:'🐱', img:null, autoEnabled:false },
+    { name:'食器用洗剤',         cat:'洗剤・清掃', mode:'count',   stock:1, threshold:2, unit:'本',  emoji:'🧹', img:null, autoEnabled:false },
+    { name:'お米',               cat:'食品・飲料', mode:'percent', percent:50, emoji:'🍚', img:null, autoEnabled:false },
   ];
   for (const item of defaults) await push(ref(db, 'inventory/items'), item);
 }
@@ -217,11 +257,7 @@ async function initDefaultItems() {
 /* =====================
    描画
    ===================== */
-function render() {
-  renderTabs();
-  renderAlerts();
-  renderList();
-}
+function render() { renderTabs(); renderAlerts(); renderList(); }
 
 function renderTabs() {
   document.getElementById('tabs').innerHTML = getAllCats().map(c =>
@@ -232,7 +268,7 @@ function renderTabs() {
 function renderAlerts() {
   const low = items.filter(i => getStatus(i) !== 'ok');
   document.getElementById('alert-area').innerHTML = low.length
-    ? `<div class="alert-banner"><span class="alert-dot"></span>在庫が少ない商品が${low.length}件あります：${low.map(i => i.name).join('、')}</div>`
+    ? `<div class="alert-banner"><span class="alert-dot"></span>在庫が少ない商品が${low.length}件あります：${low.map(i=>i.name).join('、')}</div>`
     : '';
 }
 
@@ -246,105 +282,118 @@ function cardHTML(item) {
   const imgEl = item.img
     ? `<div class="card-img"><img src="${item.img}" alt="${item.name}"></div>`
     : `<div class="card-img">${item.emoji}</div>`;
+
+  // 残量管理（パーセント）
+  let controlHTML = '';
+  if (item.mode === 'percent') {
+    const pct = item.percent ?? 100;
+    const fillCls = st === 'ok' ? 'fill-ok' : st === 'warn' ? 'fill-warn' : 'fill-low';
+    const pctSteps = [100,75,50,25,0].map(p =>
+      `<button class="pct-step-btn${pct===p?' current':''}" data-pct-step="${item._key}" data-pct="${p}">${PCT_LABELS[p]}</button>`
+    ).join('');
+    controlHTML = `
+      <div class="percent-bar-wrap">
+        <div class="percent-bar-bg"><div class="percent-bar-fill ${fillCls}" style="width:${pct}%"></div></div>
+        <div class="percent-label">${PCT_LABELS[pct] ?? pct+'%'}</div>
+        <div class="pct-step-row">${pctSteps}</div>
+      </div>`;
+  } else {
+    // 個数管理
+    controlHTML = `
+      <div class="stepper">
+        <button class="step-btn" data-step="${item._key}" data-delta="-1">−</button>
+        <span class="step-val num-${st}">${item.stock ?? 0}</span>
+        <span style="font-size:11px;color:var(--brown-mid)">${item.unit||'個'}</span>
+        <button class="step-btn" data-step="${item._key}" data-delta="1">＋</button>
+      </div>`;
+  }
+
+  // 自動消費バッジ
+  const autoBadge = item.autoEnabled
+    ? `<div class="auto-badge ${item.autoMode==='learn'?'learn':'on'}">${item.autoMode==='learn'?'🧠 自動学習':'⏱ 自動消費'}</div>`
+    : '';
+
   return `
-    <div class="card ${st === 'ok' ? '' : st}" data-key="${item._key}">
+    <div class="card ${st==='ok'?'':st}" data-key="${item._key}">
       ${imgEl}
       <div class="card-name" title="${item.name}">${item.name}</div>
       <div class="card-cat">${item.cat}</div>
-      <div class="stock-row">
-        <span style="font-size:12px;color:var(--brown-mid)">在庫</span>
-        ${badges[st]}
-      </div>
-      <div class="stepper">
-        <button class="step-btn" data-step="${item._key}" data-delta="-1">−</button>
-        <span class="step-val num-${st}">${item.stock}</span>
-        <span style="font-size:11px;color:var(--brown-mid)">${item.unit || '個'}</span>
-        <button class="step-btn" data-step="${item._key}" data-delta="1">＋</button>
-      </div>
+      <div class="stock-row"><span style="font-size:12px;color:var(--brown-mid)">残量</span>${badges[st]}</div>
+      ${controlHTML}
+      ${autoBadge}
     </div>`;
 }
 
-/* カテゴリごとにカルーセルセクションを生成 */
 function carouselSectionHTML(cat, catItems, index) {
   const id = `carousel-${index}`;
   return `
     <div class="carousel-section">
       <div class="carousel-header">
-        <div class="section-title">${CAT_EMOJI[cat] || '📦'} ${cat}</div>
+        <div class="section-title">${CAT_EMOJI[cat]||'📦'} ${cat}</div>
         <span class="carousel-count">${catItems.length}件</span>
       </div>
       <div class="carousel-track-wrap">
         <button class="carousel-arrow prev" data-target="${id}">‹</button>
-        <div class="carousel-track" id="${id}">
-          ${catItems.map(cardHTML).join('')}
-        </div>
+        <div class="carousel-track" id="${id}">${catItems.map(cardHTML).join('')}</div>
         <button class="carousel-arrow next" data-target="${id}">›</button>
       </div>
       <div class="carousel-dots" id="${id}-dots">
-        ${catItems.map((_, i) => `<div class="carousel-dot${i === 0 ? ' active' : ''}" data-target="${id}" data-index="${i}"></div>`).join('')}
+        ${catItems.map((_,i)=>`<div class="carousel-dot${i===0?' active':''}" data-target="${id}" data-index="${i}"></div>`).join('')}
       </div>
     </div>`;
 }
 
 function renderList() {
-  const filtered = activeTab === '全て' ? items : items.filter(i => i.cat === activeTab);
+  const filtered = activeTab==='全て' ? items : items.filter(i=>i.cat===activeTab);
   const el = document.getElementById('list-area');
-
-  if (!filtered.length) {
-    el.innerHTML = '<div class="empty">商品がありません。「＋ 追加」から登録してください。</div>';
-    return;
-  }
-
-  const cats = [...new Set(filtered.map(i => i.cat))];
-  el.innerHTML = cats.map((cat, idx) => {
-    const catItems = filtered.filter(i => i.cat === cat);
-    return carouselSectionHTML(cat, catItems, idx);
-  }).join('');
-
-  // 各カルーセルにスクロール同期を設定
-  cats.forEach((_, idx) => {
-    const trackId = `carousel-${idx}`;
-    const track = document.getElementById(trackId);
-    if (!track) return;
-    track.addEventListener('scroll', () => updateDots(trackId), { passive: true });
+  if (!filtered.length) { el.innerHTML='<div class="empty">商品がありません。「＋ 追加」から登録してください。</div>'; return; }
+  const cats = [...new Set(filtered.map(i=>i.cat))];
+  el.innerHTML = cats.map((cat,idx)=>carouselSectionHTML(cat, filtered.filter(i=>i.cat===cat), idx)).join('');
+  cats.forEach((_,idx)=>{
+    const track = document.getElementById(`carousel-${idx}`);
+    if (track) track.addEventListener('scroll', ()=>updateDots(`carousel-${idx}`), {passive:true});
   });
 }
 
-/* =====================
-   カルーセル操作
-   ===================== */
 function updateDots(trackId) {
   const track = document.getElementById(trackId);
   if (!track) return;
-  const cardWidth = track.querySelector('.card')?.offsetWidth + 12 || 172;
+  const cardWidth = (track.querySelector('.card')?.offsetWidth ?? 160) + 12;
   const idx = Math.round(track.scrollLeft / cardWidth);
-  const dots = document.querySelectorAll(`[data-target="${trackId}"].carousel-dot`);
-  dots.forEach((d, i) => d.classList.toggle('active', i === idx));
+  document.querySelectorAll(`[data-target="${trackId}"].carousel-dot`).forEach((d,i)=>d.classList.toggle('active',i===idx));
 }
 
-function scrollCarousel(trackId, direction) {
+function scrollCarousel(trackId, dir) {
   const track = document.getElementById(trackId);
   if (!track) return;
-  const cardWidth = track.querySelector('.card')?.offsetWidth + 12 || 172;
-  track.scrollBy({ left: direction * cardWidth * 2, behavior: 'smooth' });
+  const cardWidth = (track.querySelector('.card')?.offsetWidth ?? 160) + 12;
+  track.scrollBy({left: dir * cardWidth * 2, behavior:'smooth'});
 }
 
-// 矢印・ドットのクリックは list-area に委譲
+/* =====================
+   カード操作イベント
+   ===================== */
 document.getElementById('list-area').addEventListener('click', async function(e) {
-  // 矢印
+  // カルーセル矢印
   const arrow = e.target.closest('.carousel-arrow');
-  if (arrow) {
-    const dir = arrow.classList.contains('next') ? 1 : -1;
-    scrollCarousel(arrow.dataset.target, dir);
-    return;
-  }
+  if (arrow) { scrollCarousel(arrow.dataset.target, arrow.classList.contains('next') ? 1 : -1); return; }
   // ドット
   const dot = e.target.closest('.carousel-dot');
   if (dot) {
     const track = document.getElementById(dot.dataset.target);
-    if (!track) return;
-    const cardWidth = track.querySelector('.card')?.offsetWidth + 12 || 172;
-    track.scrollTo({ left: parseInt(dot.dataset.index) * cardWidth, behavior: 'smooth' });
+    if (track) { const cw = (track.querySelector('.card')?.offsetWidth??160)+12; track.scrollTo({left:parseInt(dot.dataset.index)*cw, behavior:'smooth'}); }
+    return;
+  }
+  // パーセントステップ
+  const pctBtn = e.target.closest('[data-pct-step]');
+  if (pctBtn) {
+    const key = pctBtn.dataset.pctStep;
+    const pct = parseInt(pctBtn.dataset.pct);
+    const item = items.find(i=>i._key===key);
+    if (item) {
+      await update(ref(db, `inventory/items/${key}`), {percent: pct});
+      await recordHistory(key, pct);
+    }
     return;
   }
   // ステッパー
@@ -352,8 +401,12 @@ document.getElementById('list-area').addEventListener('click', async function(e)
   if (stepBtn) {
     const key   = stepBtn.dataset.step;
     const delta = parseInt(stepBtn.dataset.delta);
-    const item  = items.find(i => i._key === key);
-    if (item) await update(ref(db, `inventory/items/${key}`), { stock: Math.max(0, item.stock + delta) });
+    const item  = items.find(i=>i._key===key);
+    if (item) {
+      const newStock = Math.max(0, (item.stock??0) + delta);
+      await update(ref(db, `inventory/items/${key}`), {stock: newStock});
+      await recordHistory(key, newStock);
+    }
     return;
   }
   // カード編集
@@ -362,61 +415,119 @@ document.getElementById('list-area').addEventListener('click', async function(e)
 });
 
 /* =====================
-   モーダル操作
+   モーダル
    ===================== */
 function buildEmojiGrid(sel) {
-  document.getElementById('emoji-grid').innerHTML = EMOJIS.map(e =>
-    `<div class="emoji-opt${e === sel ? ' selected' : ''}" data-emoji="${e}">${e}</div>`
+  document.getElementById('emoji-grid').innerHTML = EMOJIS.map(e=>
+    `<div class="emoji-opt${e===sel?' selected':''}" data-emoji="${e}">${e}</div>`
   ).join('');
 }
 
+function setMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active', b.dataset.mode===mode));
+  document.getElementById('count-fields').style.display   = mode==='count'   ? '' : 'none';
+  document.getElementById('percent-fields').style.display = mode==='percent' ? '' : 'none';
+}
+
+function setPct(pct) {
+  selectedPct = pct;
+  document.querySelectorAll('#percent-selector .pct-btn').forEach(b=>b.classList.toggle('active', parseInt(b.dataset.pct)===pct));
+}
+
+function setAutoMode(mode) {
+  currentAutoMode = mode;
+  document.getElementById('manual-pace-field').style.display = mode==='manual' ? '' : 'none';
+  document.getElementById('learn-info').style.display         = mode==='learn'  ? '' : 'none';
+}
+
+// 管理モードボタン
+document.getElementById('mode-selector').addEventListener('click', e => {
+  const btn = e.target.closest('.mode-btn');
+  if (btn) setMode(btn.dataset.mode);
+});
+// パーセントボタン
+document.getElementById('percent-selector').addEventListener('click', e => {
+  const btn = e.target.closest('.pct-btn');
+  if (btn) setPct(parseInt(btn.dataset.pct));
+});
+// 自動消費トグル
+document.getElementById('f-auto-enabled').addEventListener('change', function() {
+  document.getElementById('auto-fields').style.display = this.checked ? '' : 'none';
+});
+// 自動モード切り替え
+document.querySelectorAll('input[name="auto-mode"]').forEach(r => {
+  r.addEventListener('change', ()=>setAutoMode(r.value));
+});
+
 function openAdd() {
-  editFirebaseKey = null; uploadedImg = null; selectedEmoji = '🛒';
+  editFirebaseKey=null; uploadedImg=null; selectedEmoji='🛒'; selectedPct=100;
   document.getElementById('modal-title').textContent  = '商品を追加';
   document.getElementById('f-name').value             = '';
   document.getElementById('f-cat').value              = '日用品';
   document.getElementById('f-stock').value            = 1;
   document.getElementById('f-threshold').value        = 2;
   document.getElementById('f-unit').value             = '';
+  document.getElementById('f-auto-enabled').checked   = false;
+  document.getElementById('auto-fields').style.display= 'none';
+  document.getElementById('f-pace-amount').value      = 1;
   document.getElementById('btn-delete').style.display = 'none';
   document.getElementById('img-preview').innerHTML    = '<span id="preview-emoji">🛒</span>';
+  document.querySelectorAll('input[name="auto-mode"]')[0].checked = true;
+  setMode('count'); setPct(100); setAutoMode('manual');
   buildEmojiGrid('🛒');
   document.getElementById('modal-overlay').classList.add('open');
 }
 
 function openEdit(key) {
-  const item = items.find(i => i._key === key);
+  const item = items.find(i=>i._key===key);
   if (!item) return;
-  editFirebaseKey = key; uploadedImg = item.img || null; selectedEmoji = item.emoji;
+  editFirebaseKey=key; uploadedImg=item.img||null; selectedEmoji=item.emoji; selectedPct=item.percent??100;
   document.getElementById('modal-title').textContent  = '在庫を編集';
   document.getElementById('f-name').value             = item.name;
   document.getElementById('f-cat').value              = item.cat;
-  document.getElementById('f-stock').value            = item.stock;
-  document.getElementById('f-threshold').value        = item.threshold;
-  document.getElementById('f-unit').value             = item.unit || '';
+  document.getElementById('f-stock').value            = item.stock??0;
+  document.getElementById('f-threshold').value        = item.threshold??2;
+  document.getElementById('f-unit').value             = item.unit||'';
+  document.getElementById('f-auto-enabled').checked   = !!item.autoEnabled;
+  document.getElementById('auto-fields').style.display= item.autoEnabled ? '' : 'none';
+  document.getElementById('f-pace-amount').value      = item.manualPace??1;
   document.getElementById('btn-delete').style.display = '';
   document.getElementById('img-preview').innerHTML    = item.img
-    ? `<img src="${item.img}" alt="">`
-    : `<span id="preview-emoji">${item.emoji}</span>`;
+    ? `<img src="${item.img}" alt="">` : `<span id="preview-emoji">${item.emoji}</span>`;
+  const autoMode = item.autoMode||'manual';
+  document.querySelectorAll('input[name="auto-mode"]').forEach(r=>r.checked=(r.value===autoMode));
+  setMode(item.mode||'count'); setPct(item.percent??100); setAutoMode(autoMode);
   buildEmojiGrid(item.emoji);
   document.getElementById('modal-overlay').classList.add('open');
+  // 単位ラベルを更新
+  document.getElementById('pace-unit-label').textContent = item.unit||'個';
 }
 
-function closeModal() {
-  document.getElementById('modal-overlay').classList.remove('open');
-}
+function closeModal() { document.getElementById('modal-overlay').classList.remove('open'); }
 
 async function saveItem() {
   const name = document.getElementById('f-name').value.trim();
   if (!name) { alert('商品名を入力してください'); return; }
+  const autoEnabled = document.getElementById('f-auto-enabled').checked;
+  const autoMode    = document.querySelector('input[name="auto-mode"]:checked')?.value || 'manual';
+  const unit        = document.getElementById('f-unit').value.trim() || '個';
   const data = {
     name,
-    cat:       document.getElementById('f-cat').value,
-    stock:     parseInt(document.getElementById('f-stock').value)     || 0,
-    threshold: parseInt(document.getElementById('f-threshold').value) || 1,
-    unit:      document.getElementById('f-unit').value.trim() || '個',
-    emoji:     selectedEmoji,
-    img:       uploadedImg || null
+    cat:        document.getElementById('f-cat').value,
+    mode:       currentMode,
+    emoji:      selectedEmoji,
+    img:        uploadedImg || null,
+    autoEnabled,
+    autoMode,
+    manualPace: parseFloat(document.getElementById('f-pace-amount').value) || 1,
+    ...(currentMode === 'count' ? {
+      stock:     parseInt(document.getElementById('f-stock').value) || 0,
+      threshold: parseInt(document.getElementById('f-threshold').value) || 1,
+      unit,
+    } : {
+      percent: selectedPct,
+    })
   };
   try {
     if (editFirebaseKey) {
@@ -424,15 +535,12 @@ async function saveItem() {
     } else {
       await push(ref(db, 'inventory/items'), data);
     }
-    closeModal();
-    showToast('保存しました');
-  } catch (e) {
-    alert('保存に失敗しました: ' + e.message);
-  }
+    closeModal(); showToast('保存しました');
+  } catch (e) { alert('保存に失敗しました: ' + e.message); }
 }
 
 function confirmDelete() {
-  const item = items.find(i => i._key === editFirebaseKey);
+  const item = items.find(i=>i._key===editFirebaseKey);
   if (!item) return;
   document.getElementById('confirm-msg').textContent = `「${item.name}」を削除しますか？`;
   document.getElementById('confirm-overlay').classList.add('open');
@@ -441,36 +549,29 @@ function confirmDelete() {
 async function doDelete() {
   try {
     await remove(ref(db, `inventory/items/${editFirebaseKey}`));
+    await remove(ref(db, `inventory/history/${editFirebaseKey}`));
     document.getElementById('confirm-overlay').classList.remove('open');
-    closeModal();
-    showToast('削除しました');
-  } catch (e) {
-    alert('削除に失敗しました: ' + e.message);
-  }
+    closeModal(); showToast('削除しました');
+  } catch (e) { alert('削除に失敗しました: ' + e.message); }
 }
 
 /* =====================
-   その他イベントリスナー
+   イベントリスナー
    ===================== */
 document.getElementById('btn-add').addEventListener('click', openAdd);
 document.getElementById('btn-cancel').addEventListener('click', closeModal);
 document.getElementById('btn-save').addEventListener('click', saveItem);
 document.getElementById('btn-delete').addEventListener('click', confirmDelete);
-document.getElementById('confirm-no').addEventListener('click', () =>
-  document.getElementById('confirm-overlay').classList.remove('open')
-);
+document.getElementById('confirm-no').addEventListener('click', ()=>document.getElementById('confirm-overlay').classList.remove('open'));
 document.getElementById('confirm-yes').addEventListener('click', doDelete);
+document.getElementById('modal-overlay').addEventListener('click', function(e){ if(e.target===this) closeModal(); });
 
-document.getElementById('modal-overlay').addEventListener('click', function(e) {
-  if (e.target === this) closeModal();
-});
-
-document.getElementById('tabs').addEventListener('click', function(e) {
+document.getElementById('tabs').addEventListener('click', function(e){
   const t = e.target.closest('[data-tab]');
-  if (t) { activeTab = t.dataset.tab; render(); }
+  if (t) { activeTab=t.dataset.tab; render(); }
 });
 
-document.getElementById('emoji-grid').addEventListener('click', function(e) {
+document.getElementById('emoji-grid').addEventListener('click', function(e){
   const opt = e.target.closest('[data-emoji]');
   if (!opt) return;
   selectedEmoji = opt.dataset.emoji;
@@ -479,9 +580,12 @@ document.getElementById('emoji-grid').addEventListener('click', function(e) {
   buildEmojiGrid(selectedEmoji);
 });
 
-document.getElementById('img-input').addEventListener('change', function(e) {
-  const file = e.target.files[0];
-  if (!file) return;
+document.getElementById('f-unit').addEventListener('input', function(){
+  document.getElementById('pace-unit-label').textContent = this.value || '個';
+});
+
+document.getElementById('img-input').addEventListener('change', function(e){
+  const file = e.target.files[0]; if (!file) return;
   const reader = new FileReader();
   reader.onload = ev => {
     uploadedImg = ev.target.result;
