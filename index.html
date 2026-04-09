@@ -14,14 +14,8 @@
       <div class="auth-hero"><img src="hero.png" alt="stocké"></div>
       <div class="auth-sub">ログインしてください</div>
       <div id="auth-error" class="auth-error" style="display:none"></div>
-      <div class="field">
-        <label>メールアドレス</label>
-        <input type="email" id="auth-email" placeholder="例：family@example.com" autocomplete="email">
-      </div>
-      <div class="field">
-        <label>パスワード</label>
-        <input type="password" id="auth-password" placeholder="6文字以上" autocomplete="current-password">
-      </div>
+      <div class="field"><label>メールアドレス</label><input type="email" id="auth-email" placeholder="例：family@example.com" autocomplete="email"></div>
+      <div class="field"><label>パスワード</label><input type="password" id="auth-password" placeholder="6文字以上" autocomplete="current-password"></div>
       <button class="auth-btn" id="btn-login">ログイン</button>
       <button class="auth-btn auth-btn-sub" id="btn-go-register">新規登録はこちら</button>
       <div class="auth-note">※ ご家族のみ登録してください</div>
@@ -35,43 +29,78 @@
       <div class="auth-title-text">新規登録</div>
       <div class="auth-sub">家族アカウントを作成します</div>
       <div id="reg-error" class="auth-error" style="display:none"></div>
-      <div class="field">
-        <label>メールアドレス</label>
-        <input type="email" id="reg-email" placeholder="例：family@example.com" autocomplete="email">
-      </div>
-      <div class="field">
-        <label>パスワード（6文字以上）</label>
-        <input type="password" id="reg-password" placeholder="6文字以上" autocomplete="new-password">
-      </div>
-      <div class="field">
-        <label>パスワード（確認）</label>
-        <input type="password" id="reg-password2" placeholder="もう一度入力" autocomplete="new-password">
-      </div>
+      <div class="field"><label>メールアドレス</label><input type="email" id="reg-email" placeholder="例：family@example.com" autocomplete="email"></div>
+      <div class="field"><label>パスワード（6文字以上）</label><input type="password" id="reg-password" placeholder="6文字以上" autocomplete="new-password"></div>
+      <div class="field"><label>パスワード（確認）</label><input type="password" id="reg-password2" placeholder="もう一度入力" autocomplete="new-password"></div>
       <button class="auth-btn" id="btn-register">登録する</button>
       <button class="auth-btn auth-btn-sub" id="btn-go-login">ログインに戻る</button>
     </div>
   </div>
 
   <!-- メインアプリ -->
-  <div id="app-screen" class="app" style="display:none">
-    <div class="header">
-      <div class="header-brand">
+  <div id="app-screen" style="display:none">
+
+    <!-- ナビゲーションバー -->
+    <nav class="nav-bar">
+      <div class="nav-brand">
         <span class="header-logo">stocké</span>
         <span class="header-paw">🐾</span>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <div class="nav-tabs">
+        <button class="nav-tab active" data-page="inventory">在庫</button>
+        <button class="nav-tab" data-page="history">履歴・家計</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
         <button class="add-btn" id="btn-add">＋ 追加</button>
         <button class="logout-btn" id="btn-logout">ログアウト</button>
       </div>
+    </nav>
+
+    <!-- 在庫ページ -->
+    <div id="page-inventory" class="page app">
+      <div class="sync-bar">
+        <span class="sync-dot loading" id="sync-dot"></span>
+        <span id="sync-label">接続中...</span>
+        <span id="user-label" style="margin-left:auto;font-size:12px;color:#a07850"></span>
+      </div>
+      <div id="alert-area"></div>
+      <div class="tab-row" id="tabs"></div>
+      <div id="list-area"></div>
     </div>
-    <div class="sync-bar">
-      <span class="sync-dot loading" id="sync-dot"></span>
-      <span id="sync-label">接続中...</span>
-      <span id="user-label" style="margin-left:auto;font-size:12px;color:#a07850"></span>
+
+    <!-- 履歴・家計ページ -->
+    <div id="page-history" class="page app" style="display:none">
+      <div class="history-header">
+        <div class="history-title">消費履歴・家計</div>
+        <div class="month-nav">
+          <button class="month-btn" id="btn-month-prev">‹</button>
+          <span id="month-label"></span>
+          <button class="month-btn" id="btn-month-next">›</button>
+        </div>
+      </div>
+
+      <!-- サマリーカード -->
+      <div class="summary-cards" id="summary-cards"></div>
+
+      <!-- 月別棒グラフ -->
+      <div class="chart-section">
+        <div class="chart-title">過去3ヶ月の消費金額</div>
+        <div class="bar-chart" id="bar-chart"></div>
+      </div>
+
+      <!-- カテゴリ別内訳 -->
+      <div class="chart-section">
+        <div class="chart-title">カテゴリ別内訳</div>
+        <div id="category-breakdown"></div>
+      </div>
+
+      <!-- 詳細履歴リスト -->
+      <div class="chart-section">
+        <div class="chart-title">消費履歴一覧</div>
+        <div id="history-list"></div>
+      </div>
     </div>
-    <div id="alert-area"></div>
-    <div class="tab-row" id="tabs"></div>
-    <div id="list-area"></div>
+
   </div>
 
   <!-- 追加・編集モーダル -->
@@ -91,7 +120,17 @@
         </select>
       </div>
 
-      <!-- 管理モード選択 -->
+      <!-- 値段 -->
+      <div class="field">
+        <label>値段（円）</label>
+        <div class="price-input-wrap">
+          <span class="price-prefix">¥</span>
+          <input type="number" id="f-price" min="0" step="1" placeholder="0">
+          <span class="price-suffix">/ <input type="text" id="f-price-unit" placeholder="個" maxlength="6" style="width:48px;border:none;border-bottom:1px solid var(--cream-dark);background:transparent;font-size:14px;color:var(--brown-dark);padding:2px 4px;"></span>
+        </div>
+      </div>
+
+      <!-- 管理モード -->
       <div class="field">
         <label>管理モード</label>
         <div class="mode-selector" id="mode-selector">
@@ -119,6 +158,12 @@
             <button class="pct-btn" data-pct="0">空</button>
           </div>
         </div>
+        <div class="field"><label>アラートの基準（この%以下で警告）</label>
+          <select id="f-pct-threshold">
+            <option value="25">25%以下</option>
+            <option value="50">50%以下</option>
+          </select>
+        </div>
       </div>
 
       <!-- 自動消費設定 -->
@@ -132,15 +177,9 @@
         </div>
         <div id="auto-fields" style="display:none">
           <div class="auto-mode-row">
-            <label class="radio-label">
-              <input type="radio" name="auto-mode" value="manual" checked> 手動ペース設定
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="auto-mode" value="learn"> 自動学習
-            </label>
+            <label class="radio-label"><input type="radio" name="auto-mode" value="manual" checked> 手動ペース設定</label>
+            <label class="radio-label"><input type="radio" name="auto-mode" value="learn"> 自動学習</label>
           </div>
-
-          <!-- 手動ペース -->
           <div id="manual-pace-field">
             <div class="pace-row">
               <span class="pace-label">1日あたり</span>
@@ -149,18 +188,13 @@
               <span class="pace-label">消費</span>
             </div>
           </div>
-
-          <!-- 自動学習の説明 -->
           <div id="learn-info" style="display:none">
-            <div class="learn-badge">在庫変更の履歴から消費ペースを自動計算します。履歴が少ない場合は手動ペースで補完されます。</div>
+            <div class="learn-badge">在庫変更の履歴から消費ペースを自動計算します。</div>
           </div>
         </div>
       </div>
 
-      <div class="field">
-        <label>アイコン</label>
-        <div class="emoji-grid" id="emoji-grid"></div>
-      </div>
+      <div class="field"><label>アイコン</label><div class="emoji-grid" id="emoji-grid"></div></div>
 
       <div class="modal-actions">
         <button class="btn-cancel" id="btn-cancel">キャンセル</button>
