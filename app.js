@@ -2,7 +2,9 @@
    stocké — app.js
    Firebase Authentication + Realtime Database
    ・個数管理 / 残量管理（パーセント）
-   ・自動消費：手動ペース設定 + 消費履歴自動学習
+   ・残量アラート基準（設定可能）
+   ・値段表示
+   ・自動消費：手動ペース + 自動学習
    ===================================================== */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -20,13 +22,13 @@ import {
    Firebase設定（GitHub Actionsが自動注入）
    ===================== */
 const firebaseConfig = {
-  apiKey:            "YOUR_API_KEY",
-  authDomain:        "YOUR_AUTH_DOMAIN",
-  databaseURL:       "YOUR_DATABASE_URL",
-  projectId:         "YOUR_PROJECT_ID",
-  storageBucket:     "YOUR_STORAGE_BUCKET",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId:             "YOUR_APP_ID"
+  apiKey:            "AIzaSyDZ-SHcvAXcaBybYf6qZfduoDPPw6ljL1g",
+  authDomain:        "stocke-23237.firebaseapp.com",
+  databaseURL:       "https://stocke-23237-default-rtdb.firebaseio.com",
+  projectId:         "stocke-23237,",
+  storageBucket:     "stocke-23237.firebasestorage.app",
+  messagingSenderId: "1071402774871,",
+  appId:             "1:1071402774871:web:4d4e2034b1b88d218c8e12"
 };
 
 const firebaseApp = initializeApp(firebaseConfig);
@@ -55,9 +57,10 @@ let editFirebaseKey = null;
 let selectedEmoji   = '🛒';
 let uploadedImg     = null;
 let dbUnsubscribe   = null;
-let currentMode     = 'count';   // 'count' | 'percent'
-let currentAutoMode = 'manual';  // 'manual' | 'learn'
+let currentMode     = 'count';
+let currentAutoMode = 'manual';
 let selectedPct     = 100;
+let selectedPctThreshold = 50;
 
 /* =====================
    ユーティリティ
@@ -70,15 +73,18 @@ function showToast(msg) {
 
 function setSyncStatus(status, label) {
   const dot = document.getElementById('sync-dot');
-  dot.className = 'sync-dot' + (status === 'ok' ? '' : status === 'loading' ? ' loading' : ' error');
+  dot.className = 'sync-dot' + (status==='ok' ? '' : status==='loading' ? ' loading' : ' error');
   document.getElementById('sync-label').textContent = label;
 }
 
+/* 残量管理のアラート判定（pctThreshold で基準を設定） */
 function getStatus(item) {
   if (item.mode === 'percent') {
-    const p = item.percent ?? 100;
-    if (p <= 0)  return 'low';
-    if (p <= 25) return 'warn';
+    const p  = item.percent ?? 100;
+    const th = item.pctThreshold ?? 50;
+    if (p <= 0)           return 'low';
+    if (p <= th / 2)      return 'low';
+    if (p <= th)          return 'warn';
     return 'ok';
   }
   if (item.stock === 0) return 'low';
@@ -91,14 +97,17 @@ function getAllCats() {
   return ['全て', ...new Set(items.map(i => i.cat))];
 }
 
+function formatPrice(price) {
+  if (!price && price !== 0) return null;
+  return '¥' + Number(price).toLocaleString();
+}
+
 /* =====================
    自動消費ロジック
    ===================== */
-
-// 消費履歴から1日あたりの平均消費量を計算
 function calcLearnedPace(history) {
   if (!history || history.length < 2) return null;
-  const sorted = [...history].sort((a, b) => a.ts - b.ts);
+  const sorted = [...history].sort((a,b) => a.ts - b.ts);
   let totalDelta = 0, totalDays = 0;
   for (let i = 1; i < sorted.length; i++) {
     const delta = sorted[i-1].val - sorted[i].val;
@@ -108,13 +117,11 @@ function calcLearnedPace(history) {
   return totalDays > 0 ? totalDelta / totalDays : null;
 }
 
-// 自動消費を実行（1日1回、最終実行日が今日でなければ）
 async function runAutoConsumption() {
   const today = new Date().toDateString();
   for (const item of items) {
     if (!item.autoEnabled) continue;
     if (item.lastAutoDate === today) continue;
-
     let pace = null;
     if (item.autoMode === 'learn') {
       const snap = await get(ref(db, `inventory/history/${item._key}`));
@@ -123,27 +130,18 @@ async function runAutoConsumption() {
     } else {
       pace = item.manualPace ?? 1;
     }
-
     if (item.mode === 'percent') {
       const newPct = Math.max(0, (item.percent ?? 100) - pace);
-      await update(ref(db, `inventory/items/${item._key}`), {
-        percent: Math.round(newPct), lastAutoDate: today
-      });
+      await update(ref(db, `inventory/items/${item._key}`), { percent: Math.round(newPct), lastAutoDate: today });
     } else {
       const newStock = Math.max(0, (item.stock ?? 0) - pace);
-      await update(ref(db, `inventory/items/${item._key}`), {
-        stock: Math.round(newStock * 10) / 10, lastAutoDate: today
-      });
+      await update(ref(db, `inventory/items/${item._key}`), { stock: Math.round(newStock * 10) / 10, lastAutoDate: today });
     }
   }
 }
 
-// 手動で在庫を変更したとき履歴を記録
 async function recordHistory(key, newVal) {
-  await push(ref(db, `inventory/history/${key}`), {
-    ts: Date.now(), val: newVal
-  });
-  // 履歴は最大30件に制限
+  await push(ref(db, `inventory/history/${key}`), { ts: Date.now(), val: newVal });
   const snap = await get(ref(db, `inventory/history/${key}`));
   if (snap.val()) {
     const entries = Object.entries(snap.val()).sort((a,b) => a[1].ts - b[1].ts);
@@ -159,9 +157,9 @@ async function recordHistory(key, newVal) {
    画面切り替え
    ===================== */
 function showScreen(name) {
-  document.getElementById('auth-screen').style.display     = name === 'login'    ? 'flex'  : 'none';
-  document.getElementById('register-screen').style.display = name === 'register' ? 'flex'  : 'none';
-  document.getElementById('app-screen').style.display      = name === 'app'      ? 'block' : 'none';
+  document.getElementById('auth-screen').style.display     = name==='login'    ? 'flex'  : 'none';
+  document.getElementById('register-screen').style.display = name==='register' ? 'flex'  : 'none';
+  document.getElementById('app-screen').style.display      = name==='app'      ? 'block' : 'none';
 }
 
 /* =====================
@@ -185,40 +183,39 @@ document.getElementById('btn-login').addEventListener('click', async () => {
   errEl.style.display = 'none';
   const email = document.getElementById('auth-email').value.trim();
   const pass  = document.getElementById('auth-password').value;
-  if (!email || !pass) { errEl.textContent = 'メールアドレスとパスワードを入力してください'; errEl.style.display = 'block'; return; }
+  if (!email || !pass) { errEl.textContent='メールアドレスとパスワードを入力してください'; errEl.style.display='block'; return; }
   try { await signInWithEmailAndPassword(auth, email, pass); }
-  catch (e) { errEl.textContent = authErrorMessage(e.code); errEl.style.display = 'block'; }
+  catch (e) { errEl.textContent=authErrorMessage(e.code); errEl.style.display='block'; }
 });
 
 document.getElementById('btn-go-register').addEventListener('click', () => showScreen('register'));
 document.getElementById('btn-go-login').addEventListener('click',     () => showScreen('login'));
 
 document.getElementById('btn-register').addEventListener('click', async () => {
-  const errEl = document.getElementById('reg-error');
+  const errEl  = document.getElementById('reg-error');
   errEl.style.display = 'none';
   const email  = document.getElementById('reg-email').value.trim();
   const pass   = document.getElementById('reg-password').value;
   const pass2  = document.getElementById('reg-password2').value;
-  if (!email || !pass) { errEl.textContent = 'メールアドレスとパスワードを入力してください'; errEl.style.display = 'block'; return; }
-  if (pass.length < 6) { errEl.textContent = 'パスワードは6文字以上にしてください'; errEl.style.display = 'block'; return; }
-  if (pass !== pass2)  { errEl.textContent = 'パスワードが一致しません'; errEl.style.display = 'block'; return; }
+  if (!email || !pass) { errEl.textContent='メールアドレスとパスワードを入力してください'; errEl.style.display='block'; return; }
+  if (pass.length < 6) { errEl.textContent='パスワードは6文字以上にしてください'; errEl.style.display='block'; return; }
+  if (pass !== pass2)  { errEl.textContent='パスワードが一致しません'; errEl.style.display='block'; return; }
   try { await createUserWithEmailAndPassword(auth, email, pass); showToast('登録しました。ようこそ！'); }
-  catch (e) { errEl.textContent = authErrorMessage(e.code); errEl.style.display = 'block'; }
+  catch (e) { errEl.textContent=authErrorMessage(e.code); errEl.style.display='block'; }
 });
 
 document.getElementById('btn-logout').addEventListener('click', async () => {
-  if (dbUnsubscribe) { dbUnsubscribe(); dbUnsubscribe = null; }
+  if (dbUnsubscribe) { dbUnsubscribe(); dbUnsubscribe=null; }
   await signOut(auth); showScreen('login');
 });
 
 onAuthStateChanged(auth, (user) => {
   if (user) {
     document.getElementById('user-label').textContent = user.email;
-    showScreen('app');
-    startRealtimeSync();
+    showScreen('app'); startRealtimeSync();
   } else {
-    if (dbUnsubscribe) { dbUnsubscribe(); dbUnsubscribe = null; }
-    items = []; showScreen('login');
+    if (dbUnsubscribe) { dbUnsubscribe(); dbUnsubscribe=null; }
+    items=[]; showScreen('login');
   }
 });
 
@@ -231,7 +228,7 @@ function startRealtimeSync() {
   dbUnsubscribe = onValue(itemsRef, async (snapshot) => {
     const data = snapshot.val();
     if (data) {
-      items = Object.entries(data).map(([key, val]) => ({ ...val, _key: key }));
+      items = Object.entries(data).map(([key,val]) => ({...val, _key:key}));
       await runAutoConsumption();
     } else {
       items = [];
@@ -244,12 +241,12 @@ function startRealtimeSync() {
 
 async function initDefaultItems() {
   const defaults = [
-    { name:'トイレットペーパー', cat:'日用品',    mode:'count',   stock:1, threshold:3, unit:'個',  emoji:'🧻', img:null, autoEnabled:false },
-    { name:'シャンプー',         cat:'日用品',    mode:'count',   stock:5, threshold:2, unit:'本',  emoji:'🧴', img:null, autoEnabled:false },
-    { name:'ワンちゃんのエサ',   cat:'ペット用品', mode:'count',   stock:2, threshold:2, unit:'袋',  emoji:'🐾', img:null, autoEnabled:false },
-    { name:'猫砂',               cat:'ペット用品', mode:'percent', percent:75, emoji:'🐱', img:null, autoEnabled:false },
-    { name:'食器用洗剤',         cat:'洗剤・清掃', mode:'count',   stock:1, threshold:2, unit:'本',  emoji:'🧹', img:null, autoEnabled:false },
-    { name:'お米',               cat:'食品・飲料', mode:'percent', percent:50, emoji:'🍚', img:null, autoEnabled:false },
+    { name:'トイレットペーパー', cat:'日用品',    mode:'count',   stock:1,  threshold:3, unit:'個', emoji:'🧻', img:null, autoEnabled:false, price:null },
+    { name:'シャンプー',         cat:'日用品',    mode:'count',   stock:5,  threshold:2, unit:'本', emoji:'🧴', img:null, autoEnabled:false, price:null },
+    { name:'ワンちゃんのエサ',   cat:'ペット用品', mode:'count',   stock:2,  threshold:2, unit:'袋', emoji:'🐾', img:null, autoEnabled:false, price:null },
+    { name:'猫砂',               cat:'ペット用品', mode:'percent', percent:75, pctThreshold:50, emoji:'🐱', img:null, autoEnabled:false, price:null },
+    { name:'食器用洗剤',         cat:'洗剤・清掃', mode:'count',   stock:1,  threshold:2, unit:'本', emoji:'🧹', img:null, autoEnabled:false, price:null },
+    { name:'お米',               cat:'食品・飲料', mode:'percent', percent:50, pctThreshold:25, emoji:'🍚', img:null, autoEnabled:false, price:null },
   ];
   for (const item of defaults) await push(ref(db, 'inventory/items'), item);
 }
@@ -261,7 +258,7 @@ function render() { renderTabs(); renderAlerts(); renderList(); }
 
 function renderTabs() {
   document.getElementById('tabs').innerHTML = getAllCats().map(c =>
-    `<button class="tab${activeTab === c ? ' active' : ''}" data-tab="${c}">${CAT_EMOJI[c] || '📋'} ${c}</button>`
+    `<button class="tab${activeTab===c?' active':''}" data-tab="${c}">${CAT_EMOJI[c]||'📋'} ${c}</button>`
   ).join('');
 }
 
@@ -283,22 +280,26 @@ function cardHTML(item) {
     ? `<div class="card-img"><img src="${item.img}" alt="${item.name}"></div>`
     : `<div class="card-img">${item.emoji}</div>`;
 
-  // 残量管理（パーセント）
+  const priceHTML = item.price
+    ? `<div class="card-price">${formatPrice(item.price)}</div>`
+    : '';
+
+  // 残量管理
   let controlHTML = '';
   if (item.mode === 'percent') {
     const pct = item.percent ?? 100;
-    const fillCls = st === 'ok' ? 'fill-ok' : st === 'warn' ? 'fill-warn' : 'fill-low';
+    const th  = item.pctThreshold ?? 50;
+    const fillCls = st==='ok' ? 'fill-ok' : st==='warn' ? 'fill-warn' : 'fill-low';
     const pctSteps = [100,75,50,25,0].map(p =>
       `<button class="pct-step-btn${pct===p?' current':''}" data-pct-step="${item._key}" data-pct="${p}">${PCT_LABELS[p]}</button>`
     ).join('');
     controlHTML = `
       <div class="percent-bar-wrap">
         <div class="percent-bar-bg"><div class="percent-bar-fill ${fillCls}" style="width:${pct}%"></div></div>
-        <div class="percent-label">${PCT_LABELS[pct] ?? pct+'%'}</div>
+        <div class="percent-label">${PCT_LABELS[pct] ?? pct+'%'} <span style="font-size:10px;color:var(--brown-light)">（警告:${th}%以下）</span></div>
         <div class="pct-step-row">${pctSteps}</div>
       </div>`;
   } else {
-    // 個数管理
     controlHTML = `
       <div class="stepper">
         <button class="step-btn" data-step="${item._key}" data-delta="-1">−</button>
@@ -308,7 +309,6 @@ function cardHTML(item) {
       </div>`;
   }
 
-  // 自動消費バッジ
   const autoBadge = item.autoEnabled
     ? `<div class="auto-badge ${item.autoMode==='learn'?'learn':'on'}">${item.autoMode==='learn'?'🧠 自動学習':'⏱ 自動消費'}</div>`
     : '';
@@ -317,6 +317,7 @@ function cardHTML(item) {
     <div class="card ${st==='ok'?'':st}" data-key="${item._key}">
       ${imgEl}
       <div class="card-name" title="${item.name}">${item.name}</div>
+      ${priceHTML}
       <div class="card-cat">${item.cat}</div>
       <div class="stock-row"><span style="font-size:12px;color:var(--brown-mid)">残量</span>${badges[st]}</div>
       ${controlHTML}
@@ -349,7 +350,7 @@ function renderList() {
   if (!filtered.length) { el.innerHTML='<div class="empty">商品がありません。「＋ 追加」から登録してください。</div>'; return; }
   const cats = [...new Set(filtered.map(i=>i.cat))];
   el.innerHTML = cats.map((cat,idx)=>carouselSectionHTML(cat, filtered.filter(i=>i.cat===cat), idx)).join('');
-  cats.forEach((_,idx)=>{
+  cats.forEach((_,idx) => {
     const track = document.getElementById(`carousel-${idx}`);
     if (track) track.addEventListener('scroll', ()=>updateDots(`carousel-${idx}`), {passive:true});
   });
@@ -358,7 +359,7 @@ function renderList() {
 function updateDots(trackId) {
   const track = document.getElementById(trackId);
   if (!track) return;
-  const cardWidth = (track.querySelector('.card')?.offsetWidth ?? 160) + 12;
+  const cardWidth = (track.querySelector('.card')?.offsetWidth ?? 165) + 12;
   const idx = Math.round(track.scrollLeft / cardWidth);
   document.querySelectorAll(`[data-target="${trackId}"].carousel-dot`).forEach((d,i)=>d.classList.toggle('active',i===idx));
 }
@@ -366,37 +367,33 @@ function updateDots(trackId) {
 function scrollCarousel(trackId, dir) {
   const track = document.getElementById(trackId);
   if (!track) return;
-  const cardWidth = (track.querySelector('.card')?.offsetWidth ?? 160) + 12;
-  track.scrollBy({left: dir * cardWidth * 2, behavior:'smooth'});
+  const cardWidth = (track.querySelector('.card')?.offsetWidth ?? 165) + 12;
+  track.scrollBy({left: dir*cardWidth*2, behavior:'smooth'});
 }
 
 /* =====================
-   カード操作イベント
+   カード操作
    ===================== */
 document.getElementById('list-area').addEventListener('click', async function(e) {
-  // カルーセル矢印
   const arrow = e.target.closest('.carousel-arrow');
-  if (arrow) { scrollCarousel(arrow.dataset.target, arrow.classList.contains('next') ? 1 : -1); return; }
-  // ドット
+  if (arrow) { scrollCarousel(arrow.dataset.target, arrow.classList.contains('next')?1:-1); return; }
+
   const dot = e.target.closest('.carousel-dot');
   if (dot) {
     const track = document.getElementById(dot.dataset.target);
-    if (track) { const cw = (track.querySelector('.card')?.offsetWidth??160)+12; track.scrollTo({left:parseInt(dot.dataset.index)*cw, behavior:'smooth'}); }
+    if (track) { const cw=(track.querySelector('.card')?.offsetWidth??165)+12; track.scrollTo({left:parseInt(dot.dataset.index)*cw,behavior:'smooth'}); }
     return;
   }
-  // パーセントステップ
+
   const pctBtn = e.target.closest('[data-pct-step]');
   if (pctBtn) {
     const key = pctBtn.dataset.pctStep;
     const pct = parseInt(pctBtn.dataset.pct);
     const item = items.find(i=>i._key===key);
-    if (item) {
-      await update(ref(db, `inventory/items/${key}`), {percent: pct});
-      await recordHistory(key, pct);
-    }
+    if (item) { await update(ref(db,`inventory/items/${key}`),{percent:pct}); await recordHistory(key,pct); }
     return;
   }
-  // ステッパー
+
   const stepBtn = e.target.closest('[data-step]');
   if (stepBtn) {
     const key   = stepBtn.dataset.step;
@@ -404,12 +401,12 @@ document.getElementById('list-area').addEventListener('click', async function(e)
     const item  = items.find(i=>i._key===key);
     if (item) {
       const newStock = Math.max(0, (item.stock??0) + delta);
-      await update(ref(db, `inventory/items/${key}`), {stock: newStock});
+      await update(ref(db,`inventory/items/${key}`),{stock:newStock});
       await recordHistory(key, newStock);
     }
     return;
   }
-  // カード編集
+
   const card = e.target.closest('[data-key]');
   if (card) openEdit(card.dataset.key);
 });
@@ -425,14 +422,19 @@ function buildEmojiGrid(sel) {
 
 function setMode(mode) {
   currentMode = mode;
-  document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active', b.dataset.mode===mode));
+  document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));
   document.getElementById('count-fields').style.display   = mode==='count'   ? '' : 'none';
   document.getElementById('percent-fields').style.display = mode==='percent' ? '' : 'none';
 }
 
 function setPct(pct) {
   selectedPct = pct;
-  document.querySelectorAll('#percent-selector .pct-btn').forEach(b=>b.classList.toggle('active', parseInt(b.dataset.pct)===pct));
+  document.querySelectorAll('#percent-selector .pct-btn').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.pct)===pct));
+}
+
+function setPctThreshold(th) {
+  selectedPctThreshold = th;
+  document.querySelectorAll('.pct-th-btn').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.th)===th));
 }
 
 function setAutoMode(mode) {
@@ -441,40 +443,41 @@ function setAutoMode(mode) {
   document.getElementById('learn-info').style.display         = mode==='learn'  ? '' : 'none';
 }
 
-// 管理モードボタン
 document.getElementById('mode-selector').addEventListener('click', e => {
   const btn = e.target.closest('.mode-btn');
   if (btn) setMode(btn.dataset.mode);
 });
-// パーセントボタン
 document.getElementById('percent-selector').addEventListener('click', e => {
   const btn = e.target.closest('.pct-btn');
   if (btn) setPct(parseInt(btn.dataset.pct));
 });
-// 自動消費トグル
+document.getElementById('pct-threshold-selector').addEventListener('click', e => {
+  const btn = e.target.closest('.pct-th-btn');
+  if (btn) setPctThreshold(parseInt(btn.dataset.th));
+});
 document.getElementById('f-auto-enabled').addEventListener('change', function() {
   document.getElementById('auto-fields').style.display = this.checked ? '' : 'none';
 });
-// 自動モード切り替え
 document.querySelectorAll('input[name="auto-mode"]').forEach(r => {
-  r.addEventListener('change', ()=>setAutoMode(r.value));
+  r.addEventListener('change', () => setAutoMode(r.value));
 });
 
 function openAdd() {
-  editFirebaseKey=null; uploadedImg=null; selectedEmoji='🛒'; selectedPct=100;
-  document.getElementById('modal-title').textContent  = '商品を追加';
-  document.getElementById('f-name').value             = '';
-  document.getElementById('f-cat').value              = '日用品';
-  document.getElementById('f-stock').value            = 1;
-  document.getElementById('f-threshold').value        = 2;
-  document.getElementById('f-unit').value             = '';
-  document.getElementById('f-auto-enabled').checked   = false;
-  document.getElementById('auto-fields').style.display= 'none';
-  document.getElementById('f-pace-amount').value      = 1;
-  document.getElementById('btn-delete').style.display = 'none';
-  document.getElementById('img-preview').innerHTML    = '<span id="preview-emoji">🛒</span>';
+  editFirebaseKey=null; uploadedImg=null; selectedEmoji='🛒'; selectedPct=100; selectedPctThreshold=50;
+  document.getElementById('modal-title').textContent   = '商品を追加';
+  document.getElementById('f-name').value              = '';
+  document.getElementById('f-cat').value               = '日用品';
+  document.getElementById('f-price').value             = '';
+  document.getElementById('f-stock').value             = 1;
+  document.getElementById('f-threshold').value         = 2;
+  document.getElementById('f-unit').value              = '';
+  document.getElementById('f-auto-enabled').checked    = false;
+  document.getElementById('auto-fields').style.display = 'none';
+  document.getElementById('f-pace-amount').value       = 1;
+  document.getElementById('btn-delete').style.display  = 'none';
+  document.getElementById('img-preview').innerHTML     = '<span id="preview-emoji">🛒</span>';
   document.querySelectorAll('input[name="auto-mode"]')[0].checked = true;
-  setMode('count'); setPct(100); setAutoMode('manual');
+  setMode('count'); setPct(100); setPctThreshold(50); setAutoMode('manual');
   buildEmojiGrid('🛒');
   document.getElementById('modal-overlay').classList.add('open');
 }
@@ -482,26 +485,27 @@ function openAdd() {
 function openEdit(key) {
   const item = items.find(i=>i._key===key);
   if (!item) return;
-  editFirebaseKey=key; uploadedImg=item.img||null; selectedEmoji=item.emoji; selectedPct=item.percent??100;
-  document.getElementById('modal-title').textContent  = '在庫を編集';
-  document.getElementById('f-name').value             = item.name;
-  document.getElementById('f-cat').value              = item.cat;
-  document.getElementById('f-stock').value            = item.stock??0;
-  document.getElementById('f-threshold').value        = item.threshold??2;
-  document.getElementById('f-unit').value             = item.unit||'';
-  document.getElementById('f-auto-enabled').checked   = !!item.autoEnabled;
-  document.getElementById('auto-fields').style.display= item.autoEnabled ? '' : 'none';
-  document.getElementById('f-pace-amount').value      = item.manualPace??1;
-  document.getElementById('btn-delete').style.display = '';
-  document.getElementById('img-preview').innerHTML    = item.img
+  editFirebaseKey=key; uploadedImg=item.img||null; selectedEmoji=item.emoji;
+  selectedPct=item.percent??100; selectedPctThreshold=item.pctThreshold??50;
+  document.getElementById('modal-title').textContent   = '在庫を編集';
+  document.getElementById('f-name').value              = item.name;
+  document.getElementById('f-cat').value               = item.cat;
+  document.getElementById('f-price').value             = item.price ?? '';
+  document.getElementById('f-stock').value             = item.stock ?? 0;
+  document.getElementById('f-threshold').value         = item.threshold ?? 2;
+  document.getElementById('f-unit').value              = item.unit || '';
+  document.getElementById('f-auto-enabled').checked    = !!item.autoEnabled;
+  document.getElementById('auto-fields').style.display = item.autoEnabled ? '' : 'none';
+  document.getElementById('f-pace-amount').value       = item.manualPace ?? 1;
+  document.getElementById('btn-delete').style.display  = '';
+  document.getElementById('img-preview').innerHTML     = item.img
     ? `<img src="${item.img}" alt="">` : `<span id="preview-emoji">${item.emoji}</span>`;
-  const autoMode = item.autoMode||'manual';
+  const autoMode = item.autoMode || 'manual';
   document.querySelectorAll('input[name="auto-mode"]').forEach(r=>r.checked=(r.value===autoMode));
-  setMode(item.mode||'count'); setPct(item.percent??100); setAutoMode(autoMode);
+  setMode(item.mode||'count'); setPct(item.percent??100); setPctThreshold(item.pctThreshold??50); setAutoMode(autoMode);
   buildEmojiGrid(item.emoji);
+  document.getElementById('pace-unit-label').textContent = item.unit || '個';
   document.getElementById('modal-overlay').classList.add('open');
-  // 単位ラベルを更新
-  document.getElementById('pace-unit-label').textContent = item.unit||'個';
 }
 
 function closeModal() { document.getElementById('modal-overlay').classList.remove('open'); }
@@ -512,12 +516,16 @@ async function saveItem() {
   const autoEnabled = document.getElementById('f-auto-enabled').checked;
   const autoMode    = document.querySelector('input[name="auto-mode"]:checked')?.value || 'manual';
   const unit        = document.getElementById('f-unit').value.trim() || '個';
+  const priceRaw    = document.getElementById('f-price').value;
+  const price       = priceRaw !== '' ? parseInt(priceRaw) : null;
+
   const data = {
     name,
     cat:        document.getElementById('f-cat').value,
     mode:       currentMode,
     emoji:      selectedEmoji,
     img:        uploadedImg || null,
+    price:      price,
     autoEnabled,
     autoMode,
     manualPace: parseFloat(document.getElementById('f-pace-amount').value) || 1,
@@ -526,9 +534,11 @@ async function saveItem() {
       threshold: parseInt(document.getElementById('f-threshold').value) || 1,
       unit,
     } : {
-      percent: selectedPct,
+      percent:      selectedPct,
+      pctThreshold: selectedPctThreshold,
     })
   };
+
   try {
     if (editFirebaseKey) {
       await update(ref(db, `inventory/items/${editFirebaseKey}`), data);

@@ -91,7 +91,16 @@
         </select>
       </div>
 
-      <!-- 管理モード選択 -->
+      <!-- 値段 -->
+      <div class="field">
+        <label>値段（円）</label>
+        <div class="price-input-row">
+          <span class="price-yen">¥</span>
+          <input type="number" id="f-price" min="0" step="1" placeholder="未設定">
+        </div>
+      </div>
+
+      <!-- 管理モード -->
       <div class="field">
         <label>管理モード</label>
         <div class="mode-selector" id="mode-selector">
@@ -119,6 +128,15 @@
             <button class="pct-btn" data-pct="0">空</button>
           </div>
         </div>
+        <!-- 残量アラート基準 -->
+        <div class="field">
+          <label>アラートの基準（この残量以下で警告）</label>
+          <div class="percent-threshold-selector" id="pct-threshold-selector">
+            <button class="pct-th-btn" data-th="75">75%以下</button>
+            <button class="pct-th-btn active" data-th="50">50%以下</button>
+            <button class="pct-th-btn" data-th="25">25%以下</button>
+          </div>
+        </div>
       </div>
 
       <!-- 自動消費設定 -->
@@ -139,8 +157,6 @@
               <input type="radio" name="auto-mode" value="learn"> 自動学習
             </label>
           </div>
-
-          <!-- 手動ペース -->
           <div id="manual-pace-field">
             <div class="pace-row">
               <span class="pace-label">1日あたり</span>
@@ -149,8 +165,6 @@
               <span class="pace-label">消費</span>
             </div>
           </div>
-
-          <!-- 自動学習の説明 -->
           <div id="learn-info" style="display:none">
             <div class="learn-badge">在庫変更の履歴から消費ペースを自動計算します。履歴が少ない場合は手動ペースで補完されます。</div>
           </div>
