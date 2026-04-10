@@ -100,12 +100,18 @@
         </div>
       </div>
 
+      <!-- 購入URL -->
+      <div class="field">
+        <label>購入サイトURL（Amazon・楽天など）</label>
+        <input type="url" id="f-url" placeholder="https://www.amazon.co.jp/...">
+      </div>
+
       <!-- 管理モード -->
       <div class="field">
         <label>管理モード</label>
         <div class="mode-selector" id="mode-selector">
           <button class="mode-btn active" data-mode="count">個数管理</button>
-          <button class="mode-btn" data-mode="percent">残量管理（大容量）</button>
+          <button class="mode-btn" data-mode="percent">残量管理</button>
         </div>
       </div>
 
@@ -119,16 +125,15 @@
       <!-- 残量管理フィールド -->
       <div id="percent-fields" style="display:none">
         <div class="field">
-          <label>現在の残量</label>
+          <label>現在の残量（%）</label>
           <div class="percent-selector" id="percent-selector">
-            <button class="pct-btn active" data-pct="100">満タン</button>
+            <button class="pct-btn active" data-pct="100">100%</button>
             <button class="pct-btn" data-pct="75">75%</button>
-            <button class="pct-btn" data-pct="50">半分</button>
-            <button class="pct-btn" data-pct="25">残り少し</button>
-            <button class="pct-btn" data-pct="0">空</button>
+            <button class="pct-btn" data-pct="50">50%</button>
+            <button class="pct-btn" data-pct="25">25%</button>
+            <button class="pct-btn" data-pct="0">0%</button>
           </div>
         </div>
-        <!-- 残量アラート基準 -->
         <div class="field">
           <label>アラートの基準（この残量以下で警告）</label>
           <div class="percent-threshold-selector" id="pct-threshold-selector">
@@ -157,14 +162,20 @@
               <input type="radio" name="auto-mode" value="learn"> 自動学習
             </label>
           </div>
+          <!-- 手動ペース -->
           <div id="manual-pace-field">
             <div class="pace-row">
-              <span class="pace-label">1日あたり</span>
-              <input type="number" id="f-pace-amount" min="0.01" step="0.01" value="1" style="width:70px">
+              <input type="number" id="f-pace-amount" min="0.01" step="0.01" value="1" style="width:65px">
               <span id="pace-unit-label">個</span>
-              <span class="pace-label">消費</span>
+              <span class="pace-label">／</span>
+              <select id="f-pace-period" style="width:80px;padding:6px 4px;border:1px solid var(--cream-dark);border-radius:var(--radius-md);font-size:13px;background:var(--warm-white);color:var(--brown-dark);">
+                <option value="day">1日</option>
+                <option value="week">1週間</option>
+                <option value="month">1ヶ月</option>
+              </select>
             </div>
           </div>
+          <!-- 自動学習 -->
           <div id="learn-info" style="display:none">
             <div class="learn-badge">在庫変更の履歴から消費ペースを自動計算します。履歴が少ない場合は手動ペースで補完されます。</div>
           </div>

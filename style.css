@@ -82,10 +82,10 @@ body { font-family: sans-serif; background: var(--cream); min-height: 100vh; }
 .card.warn { border: 2px solid #c87941; }
 .card-img { width: 100%; height: 90px; border-radius: var(--radius-md); margin-bottom: 10px; background: var(--cream); display: flex; align-items: center; justify-content: center; font-size: 36px; overflow: hidden; }
 .card-img img { width: 100%; height: 100%; object-fit: cover; }
-.card-name { font-size: 14px; font-weight: 500; color: var(--brown-dark); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card-price { font-size: 12px; color: var(--brown-mid); margin-bottom: 4px; }
-.card-cat  { font-size: 11px; color: var(--brown-light); margin-bottom: 8px; }
-.stock-row { display: flex; align-items: center; justify-content: space-between; }
+.card-name  { font-size: 14px; font-weight: 500; color: var(--brown-dark); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-price { font-size: 12px; color: var(--brown-mid); margin-bottom: 2px; }
+.card-cat   { font-size: 11px; color: var(--brown-light); margin-bottom: 8px; }
+.stock-row  { display: flex; align-items: center; justify-content: space-between; }
 .status-badge { font-size: 10px; font-weight: 500; padding: 2px 7px; border-radius: 99px; }
 .badge-ok   { background: #e6f4ea; color: #2d7a3a; }
 .badge-warn { background: #fef3e2; color: #c87941; }
@@ -102,16 +102,25 @@ body { font-family: sans-serif; background: var(--cream); min-height: 100vh; }
 
 /* 残量バー（パーセント） */
 .percent-bar-wrap { margin-top: 8px; }
-.percent-bar-bg { width: 100%; height: 8px; background: var(--cream-dark); border-radius: 99px; overflow: hidden; margin-bottom: 4px; }
+.percent-bar-bg { width: 100%; height: 8px; background: var(--cream-dark); border-radius: 99px; overflow: hidden; margin-bottom: 5px; }
 .percent-bar-fill { height: 100%; border-radius: 99px; transition: width 0.4s; }
 .fill-ok   { background: #4caf7d; }
 .fill-warn { background: #c87941; }
 .fill-low  { background: #c0392b; }
-.percent-label { font-size: 12px; font-weight: 500; color: var(--brown-mid); margin-bottom: 4px; }
-.pct-step-row { display: flex; gap: 3px; flex-wrap: wrap; }
-.pct-step-btn { flex: 1; min-width: 30px; padding: 3px 2px; border: 1px solid var(--cream-dark); border-radius: var(--radius-md); background: var(--cream); color: var(--brown-mid); font-size: 9px; cursor: pointer; text-align: center; }
+.percent-num-row { display: flex; align-items: baseline; gap: 4px; margin-bottom: 5px; }
+.percent-num { font-size: 20px; font-weight: 600; }
+.percent-num.num-ok   { color: #2d7a3a; }
+.percent-num.num-warn { color: #c87941; }
+.percent-num.num-low  { color: #c0392b; }
+.percent-num-unit { font-size: 11px; color: var(--brown-mid); }
+.pct-step-row { display: flex; gap: 3px; }
+.pct-step-btn { flex: 1; padding: 3px 2px; border: 1px solid var(--cream-dark); border-radius: var(--radius-md); background: var(--cream); color: var(--brown-mid); font-size: 9px; cursor: pointer; text-align: center; white-space: nowrap; }
 .pct-step-btn:hover { background: var(--cream-dark); }
 .pct-step-btn.current { background: var(--brown-dark); color: #fff; border-color: var(--brown-dark); }
+
+/* 購入ボタン */
+.buy-btn { display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; margin-top: 8px; padding: 6px; border: 1px solid var(--brown-light); border-radius: var(--radius-md); background: var(--cream); color: var(--brown-dark); font-size: 11px; font-weight: 500; cursor: pointer; text-decoration: none; }
+.buy-btn:hover { background: var(--cream-dark); }
 
 /* 自動消費バッジ */
 .auto-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; padding: 2px 6px; border-radius: 99px; margin-top: 5px; }
@@ -142,7 +151,7 @@ body { font-family: sans-serif; background: var(--cream); min-height: 100vh; }
 
 /* パーセント選択 */
 .percent-selector { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
-.pct-btn { flex: 1; min-width: 48px; padding: 8px 4px; border: 1px solid var(--cream-dark); border-radius: var(--radius-md); background: var(--warm-white); color: var(--brown-mid); font-size: 12px; cursor: pointer; text-align: center; }
+.pct-btn { flex: 1; min-width: 44px; padding: 8px 4px; border: 1px solid var(--cream-dark); border-radius: var(--radius-md); background: var(--warm-white); color: var(--brown-mid); font-size: 12px; cursor: pointer; text-align: center; }
 .pct-btn.active { background: var(--brown-dark); color: #fff; border-color: var(--brown-dark); }
 
 /* パーセントアラート基準 */
@@ -162,12 +171,12 @@ body { font-family: sans-serif; background: var(--cream); min-height: 100vh; }
 .toggle-switch input:checked + .toggle-slider:before { transform: translateX(20px); }
 .auto-mode-row { display: flex; gap: 16px; margin: 10px 0 8px; }
 .radio-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--brown-dark); cursor: pointer; }
-.pace-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--brown-dark); }
-.pace-row input { width: 70px; padding: 6px 8px; border: 1px solid var(--cream-dark); border-radius: var(--radius-md); font-size: 14px; background: var(--warm-white); color: var(--brown-dark); }
+.pace-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; color: var(--brown-dark); }
+.pace-row input { padding: 6px 8px; border: 1px solid var(--cream-dark); border-radius: var(--radius-md); font-size: 14px; background: var(--warm-white); color: var(--brown-dark); }
 .pace-label { color: var(--brown-mid); }
 .learn-badge { font-size: 12px; color: #6a2fa8; background: #f0e8fd; border-radius: var(--radius-md); padding: 8px 10px; margin-top: 6px; line-height: 1.6; }
 
-/* 絵文字グリッド */
+/* 絵文字 */
 .emoji-grid { display: grid; grid-template-columns: repeat(6,1fr); gap: 6px; margin-top: 4px; }
 .emoji-opt { font-size: 22px; padding: 6px; border-radius: var(--radius-md); border: 1px solid var(--cream-dark); cursor: pointer; text-align: center; }
 .emoji-opt.selected { border: 2px solid var(--brown-dark); background: var(--cream); }
