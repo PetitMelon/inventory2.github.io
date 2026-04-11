@@ -64,14 +64,50 @@
         <button class="logout-btn" id="btn-logout">ログアウト</button>
       </div>
     </div>
+
     <div class="sync-bar">
       <span class="sync-dot loading" id="sync-dot"></span>
       <span id="sync-label">接続中...</span>
       <span id="user-label" style="margin-left:auto;font-size:12px;color:#a07850"></span>
     </div>
-    <div id="alert-area"></div>
-    <div class="tab-row" id="tabs"></div>
-    <div id="list-area"></div>
+
+    <!-- メインナビ -->
+    <div class="main-nav">
+      <button class="nav-btn active" data-view="inventory">📦 在庫</button>
+      <button class="nav-btn" data-view="shopping">🛒 買い物リスト</button>
+      <button class="nav-btn" data-view="graph">📊 消費グラフ</button>
+    </div>
+
+    <!-- 在庫ビュー -->
+    <div id="view-inventory">
+      <div id="alert-area"></div>
+      <div class="tab-row" id="tabs"></div>
+      <div id="list-area"></div>
+    </div>
+
+    <!-- 買い物リストビュー -->
+    <div id="view-shopping" style="display:none">
+      <div class="shopping-header">
+        <div class="shopping-title-row">
+          <h2 class="view-title">買い物リスト</h2>
+          <button class="clear-checked-btn" id="btn-clear-checked">チェック済みを削除</button>
+        </div>
+        <div class="shopping-add-row">
+          <input type="text" id="shopping-input" placeholder="商品名を入力して追加...">
+          <button class="shopping-add-btn" id="btn-shopping-add">追加</button>
+        </div>
+        <button class="shortage-import-btn" id="btn-import-shortage">
+          ⚠️ 在庫不足の商品を一括追加
+        </button>
+      </div>
+      <div id="shopping-list"></div>
+    </div>
+
+    <!-- 消費グラフビュー -->
+    <div id="view-graph" style="display:none">
+      <h2 class="view-title" style="margin-bottom:1.25rem">消費グラフ</h2>
+      <div id="graph-area"></div>
+    </div>
   </div>
 
   <!-- 追加・編集モーダル -->
@@ -89,6 +125,16 @@
           <option>日用品</option><option>ペット用品</option><option>食品・飲料</option>
           <option>洗剤・清掃</option><option>薬・衛生</option><option>その他</option>
         </select>
+      </div>
+
+      <!-- 優先度 -->
+      <div class="field">
+        <label>優先度</label>
+        <div class="priority-selector" id="priority-selector">
+          <button class="pri-btn" data-pri="3"><span class="pri-icon">🔴</span><span class="pri-label">高</span></button>
+          <button class="pri-btn active" data-pri="2"><span class="pri-icon">🟡</span><span class="pri-label">中</span></button>
+          <button class="pri-btn" data-pri="1"><span class="pri-icon">🟢</span><span class="pri-label">低</span></button>
+        </div>
       </div>
 
       <!-- 値段 -->
@@ -115,14 +161,12 @@
         </div>
       </div>
 
-      <!-- 個数管理フィールド -->
       <div id="count-fields">
         <div class="field"><label>現在の在庫数</label><input type="number" id="f-stock" min="0" value="1"></div>
         <div class="field"><label>アラートの基準（この数以下で警告）</label><input type="number" id="f-threshold" min="0" value="2"></div>
         <div class="field"><label>単位（個・本・袋など）</label><input type="text" id="f-unit" placeholder="個" maxlength="6"></div>
       </div>
 
-      <!-- 残量管理フィールド -->
       <div id="percent-fields" style="display:none">
         <div class="field">
           <label>現在の残量（%）</label>
@@ -144,8 +188,8 @@
         </div>
       </div>
 
-      <!-- 自動消費設定 -->
-      <div class="field auto-section" id="auto-section">
+      <!-- 自動消費 -->
+      <div class="field auto-section">
         <div class="auto-header">
           <label>自動消費設定</label>
           <label class="toggle-switch">
@@ -155,14 +199,9 @@
         </div>
         <div id="auto-fields" style="display:none">
           <div class="auto-mode-row">
-            <label class="radio-label">
-              <input type="radio" name="auto-mode" value="manual" checked> 手動ペース設定
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="auto-mode" value="learn"> 自動学習
-            </label>
+            <label class="radio-label"><input type="radio" name="auto-mode" value="manual" checked> 手動ペース設定</label>
+            <label class="radio-label"><input type="radio" name="auto-mode" value="learn"> 自動学習</label>
           </div>
-          <!-- 手動ペース -->
           <div id="manual-pace-field">
             <div class="pace-row">
               <input type="number" id="f-pace-amount" min="0.01" step="0.01" value="1" style="width:65px">
@@ -175,7 +214,6 @@
               </select>
             </div>
           </div>
-          <!-- 自動学習 -->
           <div id="learn-info" style="display:none">
             <div class="learn-badge">在庫変更の履歴から消費ペースを自動計算します。履歴が少ない場合は手動ペースで補完されます。</div>
           </div>
